@@ -51,6 +51,7 @@ import {
   useChatSettingsWidth,
 } from "@/hooks/use-chat-settings-width";
 import { useIsMobile } from "@/hooks/use-mobile";
+import { useT } from "@/i18n";
 import { ChevronDownStandardIcon } from "@/lib/chevron-icons";
 import { toast } from "@/lib/toast";
 import { cn } from "@/lib/utils";
@@ -370,9 +371,11 @@ export function ChatSettingsPanel({
   externalProviderType = null,
 }: ChatSettingsPanelProps) {
   const asideRef = useRef<HTMLElement>(null);
+  const t = useT();
   const {
     width: settingsWidth,
     max: settingsMax,
+    stored: settingsStored,
     setWidth: setSettingsWidth,
     resetWidth: resetSettingsWidth,
   } = useChatSettingsWidth();
@@ -1465,6 +1468,7 @@ export function ChatSettingsPanel({
         edge="left"
         open={open}
         width={settingsWidth}
+        stored={settingsStored}
         min={CHAT_SETTINGS_WIDTH_MIN}
         max={settingsMax}
         clamp={clampChatSettingsWidth}
@@ -1474,8 +1478,11 @@ export function ChatSettingsPanel({
         target={() => asideRef.current}
         cssVar="--chat-settings-width"
         measure={() => asideRef.current?.getBoundingClientRect().width ?? 0}
-        label="Resize or close run settings"
-        toggleLabel="Open run settings"
+        label={t("shell.aria.resizeRunSettings")}
+        toggleLabel={t("shell.aria.openRunSettings")}
+        collapseHint={t("shell.resize.collapse")}
+        expandHint={t("shell.resize.expand")}
+        dragHint={t("shell.resize.drag")}
         dataSlot="chat-settings-resize-handle"
       />
       ) : null}
