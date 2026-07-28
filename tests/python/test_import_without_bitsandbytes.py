@@ -15,6 +15,8 @@ here too.
 from __future__ import annotations
 
 import ast
+import subprocess
+import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -294,3 +296,43 @@ def test_bitsandbytes_compile_patch_is_never_called_unguarded():
     }
     unguarded = sorted({c.lineno for c in calls} - guarded)
     assert not unguarded, f"patch_compiling_bitsandbytes called unguarded at {unguarded}"
+
+
+_BROKEN_WHEEL_PROBE = """
+import importlib.machinery, sys, types
+
+# A wheel whose native side failed to load: the top-level import succeeds but no
+# submodule is ever bound. sys.modules is enough to stand in for it, and it is
+# what CI hit -- `Core` went red on all three legs with
+# "module 'bitsandbytes' has no attribute 'functional'".
+broken = types.ModuleType("bitsandbytes")
+broken.__version__ = "0.50.0"
+broken.__spec__ = importlib.machinery.ModuleSpec("bitsandbytes", loader = None)
+broken.__file__ = "/nonexistent/bitsandbytes/__init__.py"
+sys.modules["bitsandbytes"] = broken
+
+import unsloth.kernels.utils as utils
+
+assert utils.get_ptr.__name__ == "_bnb_required", utils.get_ptr
+assert utils.HAS_CUDA_STREAM is False, utils.HAS_CUDA_STREAM
+print("BROKEN_WHEEL_OK")
+"""
+
+
+def test_a_wheel_that_imports_without_functional_degrades_to_the_stub():
+    """Guarding only the import statement is not enough.
+
+    ``import bitsandbytes`` can succeed while leaving ``bitsandbytes.functional``
+    unbound, so reading it at module scope raised at import time, which is the
+    failure the guard exists to prevent. Behavioural on purpose: the previous
+    guard passed every source-level check in this file and still broke.
+    """
+    proc = subprocess.run(
+        [sys.executable, "-c", _BROKEN_WHEEL_PROBE],
+        cwd = REPO_ROOT,
+        capture_output = True,
+        text = True,
+        timeout = 900,
+    )
+    assert proc.returncode == 0, proc.stdout[-3000:] + proc.stderr[-3000:]
+    assert "BROKEN_WHEEL_OK" in proc.stdout

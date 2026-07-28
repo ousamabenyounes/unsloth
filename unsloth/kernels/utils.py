@@ -135,6 +135,11 @@ def calculate_settings(
 HAS_CUDA_STREAM = False
 try:
     import bitsandbytes as bnb
+
+    # A broken wheel imports but never binds its submodules, so probe what we
+    # actually use. Trusting the top-level import alone let `bnb.functional`
+    # raise below, which is the failure this guard exists to prevent.
+    bnb.__version__, bnb.functional.get_ptr
 except Exception:
     # device_type.py already degrades to 16bit/full finetuning when bnb is missing
     # (e.g. gfx906, whose generic wheel has no kernels). Keep the import working and
