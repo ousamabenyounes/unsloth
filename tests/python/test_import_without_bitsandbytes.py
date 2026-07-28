@@ -361,7 +361,13 @@ def test_the_probe_rejects_a_handle_that_only_fails_when_called():
     """
     if importlib.util.find_spec("bitsandbytes") is None:
         return
-    from bitsandbytes.cextension import ErrorHandlerMockBNBNativeLibrary
+    try:
+        from bitsandbytes.cextension import ErrorHandlerMockBNBNativeLibrary
+    except ImportError:
+        # 0.45.5, the floor in pyproject.toml, predates the mock class. That
+        # release fails differently (functional.lib is None), which the
+        # lib_is_none shape already covers.
+        return
 
     probe = _load_shared_probe()
     functional = types.ModuleType("bitsandbytes.functional")
@@ -402,6 +408,25 @@ import sys
 import types
 
 SHAPE = os.environ["BROKEN_BNB_SHAPE"]
+
+
+def _apply_conftest_cpu_harness():
+    \"\"\"Run tests/conftest.py here too.
+
+    Its accelerator spoof is in-process, so a subprocess inherits none of it and
+    `import unsloth` raises "cannot find any torch accelerator" on the CPU-only
+    repo runners, before any assertion below is reached. Executing the very same
+    file, rather than restating it, keeps the two from drifting; it no-ops on a
+    host with a real accelerator, so DEVICE_TYPE and the device-dependent symbol
+    sets stay honest. The stand-in is installed first, so the device_type it
+    pre-loads probes the broken wheel.
+    \"\"\"
+    import runpy
+
+    root = os.getcwd()
+    if root not in sys.path:
+        sys.path.insert(0, root)
+    runpy.run_path(os.path.join(root, "tests", "conftest.py"))
 
 
 # ctypes raises AttributeError for a symbol the .so does not export, and caches
@@ -491,6 +516,8 @@ assert reloaded is sys.modules["bitsandbytes"] is bitsandbytes, reloaded
 # The spec has no location, so import never sets __file__. The real wheel would.
 assert not hasattr(bitsandbytes, "__file__"), bitsandbytes.__file__
 assert hasattr(bitsandbytes, "functional") == (SHAPE != "no_functional"), SHAPE
+
+_apply_conftest_cpu_harness()
 
 import unsloth.kernels.utils as utils
 from unsloth.device_type import ALLOW_BITSANDBYTES, ALLOW_PREQUANTIZED_MODELS
