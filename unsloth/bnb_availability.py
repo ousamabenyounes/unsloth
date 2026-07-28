@@ -71,10 +71,10 @@ def check_bitsandbytes(bnb, device_type):
     """
     if bnb is None:
         raise ImportError("Unsloth: `bitsandbytes` is not installed.")
-    _version = bnb.__version__          # kernels/utils.py gates HAS_CUDA_STREAM on it
+    _version = bnb.__version__  # kernels/utils.py gates HAS_CUDA_STREAM on it
     functional = bnb.functional
     _get_ptr = functional.get_ptr
-    lib = functional.lib                # None on a 0.45.5 native-load failure
+    lib = functional.lib  # None on a 0.45.5 native-load failure
     for symbol in bitsandbytes_symbols(device_type):
         # `restype` is a ctypes foreign function; bitsandbytes hands back a plain
         # Python closure that defers the failure to call time instead of raising.

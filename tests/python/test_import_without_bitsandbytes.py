@@ -147,11 +147,7 @@ def test_capability_flags_come_from_a_guarded_import_not_find_spec():
 
     kernels = (REPO_ROOT / "unsloth" / "kernels" / "utils.py").read_text(encoding = "utf-8")
     assert "bnb = BITSANDBYTES" in kernels, "the kernels must reuse the shared result"
-    reimports = [
-        node.lineno
-        for node in ast.walk(ast.parse(kernels))
-        if _bnb_dependent(node)
-    ]
+    reimports = [node.lineno for node in ast.walk(ast.parse(kernels)) if _bnb_dependent(node)]
     assert not reimports, f"a second bnb import can disagree with the flags: {reimports}"
 
     gpu_init = (REPO_ROOT / "unsloth" / "_gpu_init.py").read_text(encoding = "utf-8")
