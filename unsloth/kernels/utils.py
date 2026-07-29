@@ -134,13 +134,11 @@ def calculate_settings(
 
 
 HAS_CUDA_STREAM = False
-# device_type.py already probed every attribute read below (bnb_availability.py),
-# so this is None unless all of them resolve - a broken wheel that imports but
-# never binds `functional`, or binds a `functional.lib` that is None or missing a
-# kernel, cannot raise here. device_type.py degrades to 16bit/full finetuning in
-# that case (e.g. gfx906, whose generic wheel has no kernels) using the same
-# result, so ALLOW_BITSANDBYTES can never disagree with these fallbacks. 4bit only
-# fails if a 4bit path is actually entered.
+# device_type.py ran the shared probe (bnb_availability.py) over every attribute read
+# below, so this is None unless all of them resolve and a broken wheel cannot raise
+# here. It degrades to 16bit/full finetuning off that same result (e.g. gfx906, whose
+# generic wheel has no kernels), so ALLOW_BITSANDBYTES cannot disagree with these
+# fallbacks; 4bit fails only if a 4bit path is actually entered.
 bnb = BITSANDBYTES
 
 

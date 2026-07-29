@@ -135,9 +135,9 @@ def test_missing_bnb_leaves_a_callable_that_reports_the_real_cause():
 def test_capability_flags_come_from_a_guarded_import_not_find_spec():
     """device_type.py, _gpu_init.py and kernels/utils.py must share one probe.
 
-    If they drift, an installed-but-unusable wheel leaves ALLOW_BITSANDBYTES true
-    while the kernels fall back to the stub, and loader.py forwards the default
-    load_in_4bit=True instead of taking the advertised 16bit fallback.
+    If they drift, an unusable wheel leaves ALLOW_BITSANDBYTES true while the kernels
+    fall back to the stub and loader.py forwards the default load_in_4bit=True instead
+    of the advertised 16bit fallback.
     """
     head = (REPO_ROOT / "unsloth" / "device_type.py").read_text(encoding = "utf-8")
     head = head.split('if DEVICE_TYPE == "hip":')[0]
@@ -313,11 +313,9 @@ def test_bitsandbytes_compile_patch_is_never_called_unguarded():
 
 
 def _load_shared_probe():
-    """Import unsloth/bnb_availability.py straight off disk.
-
-    By file path, not as ``unsloth.bnb_availability``: that would run the package
-    __init__ and pull in torch. It only works because the module is a leaf, which
-    is the property that lets device_type.py (imported very early) and
+    """Import unsloth/bnb_availability.py by path, not as ``unsloth.bnb_availability``,
+    which would run the package __init__ and pull in torch. Works only because the
+    module is a leaf - the property that lets device_type.py (imported very early) and
     _gpu_init.py both use it without a cycle.
     """
     path = REPO_ROOT / "unsloth" / "bnb_availability.py"
@@ -328,9 +326,8 @@ def _load_shared_probe():
 
 
 def test_the_shared_probe_covers_every_module_scope_bitsandbytes_symbol():
-    """kernels/utils.py binds these ctypes handles off ``bnb.functional.lib`` at
-    import time, so a wheel missing any one of them raised there. Probing only
-    ``get_ptr`` covers one broken shape out of several."""
+    """kernels/utils.py binds these ctypes handles off ``bnb.functional.lib`` at import
+    time, so probing only ``get_ptr`` covers one broken shape out of several."""
     tree = ast.parse((REPO_ROOT / "unsloth" / "kernels" / "utils.py").read_text(encoding = "utf-8"))
     bound = {
         node.attr
@@ -343,8 +340,8 @@ def test_the_shared_probe_covers_every_module_scope_bitsandbytes_symbol():
     }
     probe = _load_shared_probe()
     xpu, cuda = set(probe.bitsandbytes_symbols("xpu")), set(probe.bitsandbytes_symbols("cuda"))
-    # xpu binds the gemv pair and every other device the naive gemm pair, so the
-    # union is what kernels/utils.py can ask for across devices.
+    # xpu binds the gemv pair and every other device the naive gemm pair, so the union
+    # is what kernels/utils.py can ask for across devices.
     assert bound == xpu | cuda, f"probe and module-scope binds differ: {bound ^ (xpu | cuda)}"
     # and neither device probes the other's symbols, which its wheel will not have
     assert xpu - cuda and cuda - xpu, "the device split collapsed"
@@ -353,20 +350,18 @@ def test_the_shared_probe_covers_every_module_scope_bitsandbytes_symbol():
 def test_the_probe_rejects_a_handle_that_only_fails_when_called():
     """bitsandbytes 0.46 onwards does not raise for a symbol its .so lacks.
 
-    ``BNBNativeLibrary.__getattr__`` returns a plain ``throw_on_call`` closure,
-    and a wheel whose native library failed to load is replaced wholesale by
-    ``ErrorHandlerMockBNBNativeLibrary``, which does that for every name. So the
-    ctypes binds succeed, ALLOW_BITSANDBYTES stays true, and 4bit dies inside a
-    kernel instead of falling back to 16bit. Run against the real classes.
+    ``BNBNativeLibrary.__getattr__`` returns a ``throw_on_call`` closure, and a dead
+    native library is replaced wholesale by ``ErrorHandlerMockBNBNativeLibrary``, which
+    does that for every name. The binds then succeed, ALLOW_BITSANDBYTES stays true and
+    4bit dies inside a kernel. Run against the real classes.
     """
     if importlib.util.find_spec("bitsandbytes") is None:
         return
     try:
         from bitsandbytes.cextension import ErrorHandlerMockBNBNativeLibrary
     except ImportError:
-        # 0.45.5, the floor in pyproject.toml, predates the mock class. That
-        # release fails differently (functional.lib is None), which the
-        # lib_is_none shape already covers.
+        # 0.45.5, the floor in pyproject.toml, predates the mock class and fails
+        # differently (functional.lib is None), which the lib_is_none shape covers.
         return
 
     probe = _load_shared_probe()
@@ -388,18 +383,15 @@ def test_the_probe_rejects_a_handle_that_only_fails_when_called():
         raise AssertionError(f"the probe accepted a dead native library on {device}")
 
 
-# A wheel whose native side failed to load. It imports fine and only raises when
-# the kernels are read, which is how `Core` went red on all three legs with
-# "module 'bitsandbytes' has no attribute 'functional'".
+# Stand-ins for a wheel whose native side failed to load: it imports fine and only
+# raises when the kernels are read, which is how `Core` went red on all three legs.
 #
 #   no_functional       `functional` is never bound
-#   lib_is_none         `functional.lib is None`, the bitsandbytes 0.45.5 fallback
-#                       when the native library fails to load
-#   lib_missing_kernel  `functional.get_ptr` resolves but `functional.lib` has no
-#                       cgemm_4bit_inference_naive_bf16
-#   lib_defers_failure  every lookup resolves to a closure that raises only when
-#                       called - what bitsandbytes 0.46 onwards leaves behind, via
-#                       BNBNativeLibrary.__getattr__ / ErrorHandlerMockBNBNativeLibrary
+#   lib_is_none         `functional.lib is None`, the 0.45.5 native-load failure
+#   lib_missing_kernel  `functional.lib` has no cgemm_4bit_inference_naive_bf16
+#   lib_defers_failure  every lookup returns a closure that raises only when called -
+#                       0.46 onwards, via BNBNativeLibrary.__getattr__ and
+#                       ErrorHandlerMockBNBNativeLibrary
 _BROKEN_WHEEL_PROBE = """
 import importlib
 import importlib.machinery
@@ -559,39 +551,38 @@ def test_a_wheel_that_imports_without_functional_degrades_to_the_stub():
     """Guarding only the import statement is not enough.
 
     ``import bitsandbytes`` can succeed while leaving ``bitsandbytes.functional``
-    unbound, so reading it at module scope raised at import time, which is the
-    failure the guard exists to prevent. Behavioural on purpose: the previous
-    guard passed every source-level check in this file and still broke.
+    unbound, so reading it at module scope raised at import time - the very failure the
+    guard exists to prevent. Behavioural on purpose: the previous guard passed every
+    source-level check in this file and still broke.
     """
     _run_broken_wheel_probe("no_functional")
 
 
 def test_a_wheel_whose_lib_failed_to_load_degrades_to_the_stub():
-    """bitsandbytes 0.45.x, the floor in pyproject.toml, sets
-    ``functional.lib = None`` when the native library will not load. Probing
-    ``functional.get_ptr`` alone still leaves the ctypes binds raising
-    ``'NoneType' object has no attribute 'cdequantize_blockwise_fp32'``."""
+    """bitsandbytes 0.45.x, the floor in pyproject.toml, sets ``functional.lib = None``
+    when the native library will not load. Probing ``functional.get_ptr`` alone leaves
+    the ctypes binds raising on ``NoneType``."""
     _run_broken_wheel_probe("lib_is_none")
 
 
 def test_a_wheel_missing_one_kernel_degrades_to_the_stub():
-    """A partially loaded or backend-mismatched wheel resolves ``functional.lib``
-    and most of its symbols. ctypes raises AttributeError on the first one it does
-    not export, so every symbol bound at module scope has to be probed."""
+    """A partially loaded or backend-mismatched wheel resolves ``functional.lib`` and
+    most of its symbols. ctypes raises AttributeError on the first one it does not
+    export, so every symbol bound at module scope has to be probed."""
     _run_broken_wheel_probe("lib_missing_kernel")
 
 
 def test_a_wheel_whose_lib_only_fails_on_call_degrades_to_the_stub():
-    """The shape bitsandbytes 0.46 onwards actually produces. Nothing raises while
-    the ctypes handles are bound, so a probe made only of attribute reads sees a
-    healthy wheel and ALLOW_BITSANDBYTES stays true."""
+    """The shape bitsandbytes 0.46 onwards actually produces. Nothing raises while the
+    ctypes handles are bound, so a probe made only of attribute reads sees a healthy
+    wheel and ALLOW_BITSANDBYTES stays true."""
     _run_broken_wheel_probe("lib_defers_failure")
 
 
 def test_the_broken_wheel_stand_in_survives_the_root_recovery_reload():
-    """_gpu_init.py reloads bitsandbytes on its ``os.geteuid() == 0`` path, and
-    reload re-runs the finders rather than reusing the module's ``__spec__``. A
-    stand-in without a real loader is therefore repopulated from the installed
-    wheel there, making the test pass or fail on whether the container is root -
-    and root GPU containers are the common case for training."""
+    """_gpu_init.py reloads bitsandbytes on its ``os.geteuid() == 0`` path, and reload
+    re-runs the finders rather than reusing the module's ``__spec__``. A stand-in
+    without a real loader is therefore repopulated from the installed wheel there, so
+    the test would pass or fail on whether the container is root - and root containers
+    are the common case for training."""
     _run_broken_wheel_probe("no_functional", fake_root = True)

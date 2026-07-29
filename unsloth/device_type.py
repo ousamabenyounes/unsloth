@@ -120,13 +120,10 @@ ALLOW_PREQUANTIZED_MODELS: bool = True
 # HSA_STATUS_ERROR_EXCEPTION checks - sometimes AMD fails for BnB
 ALLOW_BITSANDBYTES: bool = True
 # Unusable bitsandbytes on any backend, not just hip: clear the flags the loader
-# reads before it selects a 4bit checkpoint. This is the one shared availability
-# result - kernels/utils.py binds `BITSANDBYTES` itself and _gpu_init.py runs the
-# same check - so an installed-but-broken wheel (missing .so, wrong ROCm/CUDA
-# build, no `functional`) is unavailable to all three and the flag cannot stay
-# true while the kernels fall back to a stub. Neither find_spec nor a bare
-# `import bitsandbytes` can see that: such a wheel imports fine and only raises
-# when the kernels are read.
+# reads before it selects a 4bit checkpoint. Neither find_spec nor a bare import can
+# see a broken wheel (missing .so, wrong ROCm/CUDA build, no `functional`) - it
+# imports fine and only raises when the kernels are read - and sharing this one
+# result keeps kernels/utils.py and _gpu_init.py from disagreeing with the flags.
 BITSANDBYTES = probe_bitsandbytes(DEVICE_TYPE)
 if BITSANDBYTES is None:
     ALLOW_PREQUANTIZED_MODELS = False
@@ -149,15 +146,14 @@ if DEVICE_TYPE == "hip":
             "(community-maintained legacy GCN path)."
         )
 if DEVICE_TYPE == "hip":
-    # Flags are already cleared above when the shared probe found no usable wheel.
+    # The flags were already cleared above if the probe found no usable wheel.
     if BITSANDBYTES is None:
         print(
             "Unsloth: `bitsandbytes` is unavailable - 4bit QLoRA unallowed, but 16bit and full finetuning works."
         )
     else:
         bitsandbytes = BITSANDBYTES
-    # `BITSANDBYTES is not None` rather than the flag it just set: the name
-    # `bitsandbytes` below is bound only on that branch.
+    # Not the flag it just set: `bitsandbytes` is bound only on the branch above.
     if BITSANDBYTES is not None:
         ALLOW_BITSANDBYTES = Version(bitsandbytes.__version__) > Version("0.48.2.dev0")
         if Version(bitsandbytes.__version__) >= Version("0.49.2"):

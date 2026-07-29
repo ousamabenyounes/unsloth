@@ -14,31 +14,26 @@
 
 """One shared answer to "is bitsandbytes usable on this host?".
 
-`import bitsandbytes` succeeding is not that answer. A wheel whose native side
-failed to load still imports, and what it leaves behind depends on the version:
+A successful `import bitsandbytes` is not that answer. A wheel whose native side
+failed to load still imports, and what it leaves behind varies by version:
 
-  * no `functional` at all, so reading it raises at import - how `main` went red
-    with "module 'bitsandbytes' has no attribute 'functional'"
+  * no `functional` at all, so reading it raises at import
   * `functional.lib is None` (0.45.5, the floor in pyproject.toml), so the ctypes
     binds raise "'NoneType' object has no attribute cdequantize_blockwise_fp32"
-  * `functional.lib` is an ErrorHandlerMockBNBNativeLibrary, or a real wrapper
-    over a .so missing that symbol (0.46 onwards). These do NOT raise:
-    BNBNativeLibrary.__getattr__ returns a plain `throw_on_call` closure, so the
-    binds succeed and 4bit dies later inside a kernel with a misleading
-    "not available in CPU-only version of bitsandbytes".
+  * `functional.lib` missing that symbol, or an ErrorHandlerMockBNBNativeLibrary
+    (0.46 onwards). These do NOT raise: BNBNativeLibrary.__getattr__ returns a
+    plain `throw_on_call` closure, so the binds succeed and 4bit dies later
+    inside a kernel. Hence the `restype` check below - a real handle is a ctypes
+    function pointer, a deferred failure is a Python function.
 
-The last shape is why attribute access alone is not a probe: a real handle is a
-ctypes function pointer, a deferred failure is a Python function.
+device_type.py, _gpu_init.py and kernels/utils.py must agree on the answer, or
+ALLOW_BITSANDBYTES stays true while the kernels fall back to the stub and
+loader.py forwards a 4bit request instead of the advertised 16bit fallback.
 
-device_type.py, _gpu_init.py and kernels/utils.py all have to agree on the
-answer. If they drift, ALLOW_BITSANDBYTES stays true while the kernels fall back
-to the stub, and loader.py forwards a 4bit request that fails downstream instead
-of taking the advertised 16bit fallback.
-
-Deliberately a leaf module: it imports nothing from unsloth - not device_type,
-which is imported very early and would be a cycle - and takes the device type as
-an argument instead. bitsandbytes itself is imported inside a function, so
-`import unsloth` never hard-requires it.
+A leaf module on purpose: it imports nothing from unsloth - device_type.py is
+imported very early and would be a cycle - and takes the device type as an
+argument. bitsandbytes is imported inside a function, so `import unsloth` never
+hard-requires it.
 """
 
 __all__ = [
@@ -47,16 +42,15 @@ __all__ = [
     "probe_bitsandbytes",
 ]
 
-# The ctypes handles kernels/utils.py binds at module scope. Keep in step with
-# the `bnb.functional.lib.*` reads there - a test asserts the two match.
+# The ctypes handles kernels/utils.py binds at module scope. Keep in step with the
+# `bnb.functional.lib.*` reads there - a test asserts the two match.
 _C_SYMBOLS = (
     "cdequantize_blockwise_fp32",
     "cdequantize_blockwise_fp16_nf4",
     "cdequantize_blockwise_bf16_nf4",
 )
-# 4bit inference is a gemv on xpu and a naive gemm everywhere else, so the symbol
-# set is device dependent - probing the xpu names on cuda would write off a
-# perfectly good wheel.
+# 4bit inference is a gemv on xpu and a naive gemm everywhere else, so probing the
+# xpu names on cuda would write off a perfectly good wheel.
 _C_SYMBOLS_XPU = (
     "cgemv_4bit_inference_fp16",
     "cgemv_4bit_inference_bf16",
@@ -76,9 +70,8 @@ def bitsandbytes_symbols(device_type):
 def check_bitsandbytes(bnb, device_type):
     """Raise unless `bnb` can serve every module-scope read kernels/utils.py makes.
 
-    Resolving each symbol is safe to repeat: ctypes caches a function object on
-    the first attribute lookup and bitsandbytes memoizes its wrapper, so the real
-    handles bound later are the very objects this resolved.
+    Safe to repeat: ctypes caches the function object on the first lookup and
+    bitsandbytes memoizes its wrapper, so the handles bound later are these ones.
     """
     if bnb is None:
         raise ImportError("Unsloth: `bitsandbytes` is not installed.")
@@ -87,8 +80,8 @@ def check_bitsandbytes(bnb, device_type):
     _get_ptr = functional.get_ptr
     lib = functional.lib  # None on a 0.45.5 native-load failure
     for symbol in bitsandbytes_symbols(device_type):
-        # `restype` is a ctypes foreign function; bitsandbytes hands back a plain
-        # Python closure that defers the failure to call time instead of raising.
+        # Only a ctypes foreign function has `restype`; a deferred failure is a
+        # plain closure that raises at call time instead of here.
         if not hasattr(getattr(lib, symbol), "restype"):
             raise AttributeError(
                 f"Unsloth: `bitsandbytes.functional.lib.{symbol}` is not a native "
