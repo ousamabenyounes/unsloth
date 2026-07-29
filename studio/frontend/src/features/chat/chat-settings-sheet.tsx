@@ -759,13 +759,24 @@ export function ChatSettingsPanel({
   }, [open]);
 
   useEffect(() => {
+    const measure = () => {
+      const el = systemPromptBoxRef.current;
+      setSystemPromptOverflows(
+        currentSystemPrompt.length > 0 &&
+          el != null &&
+          el.clientHeight > 0 &&
+          el.scrollHeight > el.clientHeight + 1,
+      );
+    };
+    measure();
     const el = systemPromptBoxRef.current;
-    setSystemPromptOverflows(
-      currentSystemPrompt.length > 0 &&
-        el != null &&
-        el.clientHeight > 0 &&
-        el.scrollHeight > el.clientHeight + 1,
-    );
+    if (!el || typeof ResizeObserver === "undefined") return;
+    // Resizing the panel rewraps the prompt, and a drag changes the width
+    // through a custom property without re-rendering, so watch the box itself
+    // rather than depending on the committed width.
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
   }, [currentSystemPrompt, open]);
 
   const settingsScrollRef = useRef<HTMLDivElement>(null);
